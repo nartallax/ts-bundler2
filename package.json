@@ -1,0 +1,16 @@
+{
+  "name": "ts-bundler2",
+  "version": "1.0.0",
+  "description": "A tool that helps build javascript bundles from typescript projects.",
+  "main": "main.js",
+  "scripts": {
+    "test": "main.js --help"
+  },
+  "author": "Nartallax <nartallax@gmail.com>",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^12.11.1",
+    "tslib": "^1.10.0",
+    "typescript": "^3.6.4"
+  }
+}

@@ -1,0 +1,15 @@
+{
+	"entryPointModule": "main",
+	"entryPointFunction": "main",
+
+	"__environment__comment": "Allowed: node, browser",
+	"environment": "browser",
+
+	"project": "./tsconfig.json",
+
+	"__outDir__comment": "OutDir is temporary directory where raw compiler output will be stored. You should not put it under version control, neither interact with it directly.",
+	"outDir": "./js",
+
+	"__outFile__comment": "The file where bundled code will be placed to.",
+	"outFile": "./main.js"
+}
