@@ -40,9 +40,9 @@ export class TSC {
 
 	/** показывает, производится ли компиляция в данный момент. значение имеет смысл только в watch-режиме */
 	get isRunning(): boolean {
-		return this._isRunning;
+		return !!this._runningCount;
 	}
-	private _isRunning = false;
+	private _runningCount = 0;
 
 	/** показывает, успешна ли последняя компиляция или нет. значение имеет смысл только в watch-режиме */
 	get codeBroken(): boolean {
@@ -103,7 +103,9 @@ export class TSC {
 	}
 
 	private processWatchLine(line: string){
-		let lc = line.toLowerCase();
+		let lc = line.toLowerCase().replace("\u001bc", "").trim();
+
+		line = line.replace("\u001bc", "").trim();
 
 		if(lc.startsWith("tsfile: ")){
 			this.lastCompilationFileChanges.push(line.substr("tsfile: ".length).trim());
@@ -113,22 +115,24 @@ export class TSC {
 			this.stopRunning(true);
 		} else if(lc.match(/^[\d:\-\s]+found\s+\d+\s+errors/)){
 			this.stopRunning(false);
-		} else if(line !== "\u001bc" && line.trim()) {
+		} else if(line.trim()) {
 			// наверняка сообщение об ошибке. прокидываем в наш stderr
-			logError(line);
+			console.error(line);
 		}
 	}
 
 	private startRunning(){
-		if(this.lastCompilationFileChanges.length > 0){
+		if(this.lastCompilationFileChanges.length > 0 && !this.isRunning){
 			// никогда не должно произойти. просто на всякий случай проверим
 			throw new Error("Something strange happened (duplicate compilation start?)");
 		}
-		this._isRunning = true;
+		this._runningCount++;
 	}
 
 	private stopRunning(success: boolean){
-		this._isRunning = false;
+		this._runningCount--;
+		if(this.isRunning)
+			return; // двойной запуск компиляции. неприятно, но ладно, не реагируем
 		this._codeBroken = !success;
 		let data: TscIncrementalCompilationResult = { 
 			filesChanged: this.lastCompilationFileChanges,

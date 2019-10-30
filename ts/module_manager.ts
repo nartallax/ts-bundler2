@@ -5,6 +5,7 @@ import {evalModule} from "eval_module";
 import {ModuleName} from "module_name";
 import {logWarn} from "log";
 import {findBundlerOrProjectFile} from "bundler_or_project_file";
+import {pathIncludes} from "path_includes";
 
 export class ModuleNotFoundError {
 
@@ -147,8 +148,7 @@ export class ModuleManager {
 	private pathToName(modulePath: string): string {
 		modulePath = path.resolve(modulePath);
 
-		// интересно, насколько startsWith хороший способ проверять вхождение одного пути в другой
-		let includingDirs = this.outDirs.filter(outDir => modulePath.startsWith(outDir));
+		let includingDirs = this.outDirs.filter(outDir => pathIncludes(outDir, modulePath));
 		
 		if(includingDirs.length < 1){
 			throw new Error("Compiled module file " + modulePath + " is not located in any expected output directories: " + this.outDirs.join("; "));
@@ -205,7 +205,7 @@ export class ModuleManager {
 			// то, скорее всего, в outDir будет не совсем внятная каша
 			// поэтому лучше проверять, что этого перехода нет. например, вот таким образом
 			let fullPath = path.resolve(tsconfigDir, pathDir);
-			if(!fullPath.startsWith(tsconfigDir))
+			if(!pathIncludes(tsconfigDir, fullPath))
 				throw new Error("Could not use tsconfig.json (at " + tsConfigPath + "): expected all wildcard paths to point to some dir inside project root (i.e. dir with tsconfig.json), but this one does not: " + p);
 			return path.resolve(outDir, pathDir);
 		});
@@ -215,7 +215,7 @@ export class ModuleManager {
 		// проверяем, что корневые директории не вложены одна в другую. просто воизбежание хаоса
 		for(let i = 0; i < dirs.length; i++){
 			for(let j = i + 1; j < dirs.length; j++){
-				if(dirs[i].startsWith(dirs[j]) || dirs[j].startsWith(dirs[i]))
+				if(pathIncludes(dirs[i], dirs[j]) || pathIncludes(dirs[j], dirs[i]))
 					throw new Error("Could not use tsconfig.json (at " + tsConfigPath + "): expected all wildcard paths not to point into each other, but these two do: " + dirs[i] + "; " + dirs[j]);
 			}
 		}

@@ -5,9 +5,10 @@
 let define = (() => {
 	setTimeout(async () => {
 		try {
-			let mainPackageName = "main";
-			let mainFunctionName = "main";
-			await Promise.resolve(resolve(mainPackageName)[mainFunctionName].call(null));
+			let mainPackageName = "bundler_main";
+			let mainFunctionName = "tsBundlerMain";
+			let pkg = resolve(mainPackageName);
+			await Promise.resolve(pkg[mainFunctionName].call(null));
 		} catch(e){
 			console.error("Bundler failed:");
 			console.error(e.stack);

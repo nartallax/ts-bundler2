@@ -11,11 +11,20 @@ let exists = (x: string) => {
 }
 
 export function findBundlerOrProjectFile(projectPath: string, relPath: string): string | null {
-	let bundlerTsc = path.resolve(__dirname, relPath);
+	let bundlerTsc = path.resolve(bundlerRoot, relPath);
 	let projectTsc = path.resolve(path.dirname(projectPath), relPath)
 	if(exists(bundlerTsc))
 		return bundlerTsc;
 	if(exists(projectTsc))
 		return projectTsc;
 	return null;
+}
+
+let bundlerRoot = __dirname;
+export function setBundlerRoot(root: string){
+	bundlerRoot = root;
+}
+
+export function getBundlerRoot(): string {
+	return bundlerRoot;
 }

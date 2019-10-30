@@ -5,9 +5,10 @@
 let define = (() => {
 	setTimeout(async () => {
 		try {
-			let mainPackageName = "main";
-			let mainFunctionName = "main";
-			await Promise.resolve(resolve(mainPackageName)[mainFunctionName].call(null));
+			let mainPackageName = "bundler_main";
+			let mainFunctionName = "tsBundlerMain";
+			let pkg = resolve(mainPackageName);
+			await Promise.resolve(pkg[mainFunctionName].call(null));
 		} catch(e){
 			console.error("Bundler failed:");
 			console.error(e.stack);
@@ -209,7 +210,7 @@ define("bundler_or_project_file", ["require", "exports", "path", "fs"], function
         }
     };
     function findBundlerOrProjectFile(projectPath, relPath) {
-        let bundlerTsc = path.resolve(__dirname, relPath);
+        let bundlerTsc = path.resolve(bundlerRoot, relPath);
         let projectTsc = path.resolve(path.dirname(projectPath), relPath);
         if (exists(bundlerTsc))
             return bundlerTsc;
@@ -218,8 +219,36 @@ define("bundler_or_project_file", ["require", "exports", "path", "fs"], function
         return null;
     }
     exports.findBundlerOrProjectFile = findBundlerOrProjectFile;
+    let bundlerRoot = __dirname;
+    function setBundlerRoot(root) {
+        bundlerRoot = root;
+    }
+    exports.setBundlerRoot = setBundlerRoot;
+    function getBundlerRoot() {
+        return bundlerRoot;
+    }
+    exports.getBundlerRoot = getBundlerRoot;
 });
-define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_module", "module_name", "log", "bundler_or_project_file"], function (require, exports, fs, path, async_fs_1, eval_module_1, module_name_1, log_1, bundler_or_project_file_1) {
+define("path_includes", ["require", "exports", "path"], function (require, exports, path) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    function pathIncludes(parentPath, childPath) {
+        childPath = path.resolve(childPath);
+        parentPath = path.resolve(parentPath);
+        if (process.platform === 'win32') {
+            childPath = childPath.toLowerCase();
+            parentPath = parentPath.toLowerCase();
+        }
+        if (childPath === parentPath) {
+            return false;
+        }
+        childPath += path.sep;
+        parentPath += path.sep;
+        return childPath.startsWith(parentPath);
+    }
+    exports.pathIncludes = pathIncludes;
+});
+define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_module", "module_name", "log", "bundler_or_project_file", "path_includes"], function (require, exports, fs, path, async_fs_1, eval_module_1, module_name_1, log_1, bundler_or_project_file_1, path_includes_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class ModuleNotFoundError {
@@ -291,7 +320,7 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
         }
         pathToName(modulePath) {
             modulePath = path.resolve(modulePath);
-            let includingDirs = this.outDirs.filter(outDir => modulePath.startsWith(outDir));
+            let includingDirs = this.outDirs.filter(outDir => path_includes_1.pathIncludes(outDir, modulePath));
             if (includingDirs.length < 1) {
                 throw new Error("Compiled module file " + modulePath + " is not located in any expected output directories: " + this.outDirs.join("; "));
             }
@@ -328,14 +357,14 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
                 }
                 let pathDir = path.dirname(p);
                 let fullPath = path.resolve(tsconfigDir, pathDir);
-                if (!fullPath.startsWith(tsconfigDir))
+                if (!path_includes_1.pathIncludes(tsconfigDir, fullPath))
                     throw new Error("Could not use tsconfig.json (at " + tsConfigPath + "): expected all wildcard paths to point to some dir inside project root (i.e. dir with tsconfig.json), but this one does not: " + p);
                 return path.resolve(outDir, pathDir);
             });
             dirs = [...new Set(dirs)];
             for (let i = 0; i < dirs.length; i++) {
                 for (let j = i + 1; j < dirs.length; j++) {
-                    if (dirs[i].startsWith(dirs[j]) || dirs[j].startsWith(dirs[i]))
+                    if (path_includes_1.pathIncludes(dirs[i], dirs[j]) || path_includes_1.pathIncludes(dirs[j], dirs[i]))
                         throw new Error("Could not use tsconfig.json (at " + tsConfigPath + "): expected all wildcard paths not to point into each other, but these two do: " + dirs[i] + "; " + dirs[j]);
                 }
             }
@@ -438,7 +467,7 @@ define("dependency_traverser", ["require", "exports", "module_manager", "log"], 
         }
     }
 });
-define("bundler", ["require", "exports", "dependency_traverser", "async_fs", "path", "log"], function (require, exports, dependency_traverser_1, async_fs_2, path, log_3) {
+define("bundler", ["require", "exports", "dependency_traverser", "async_fs", "path", "log", "bundler_or_project_file"], function (require, exports, dependency_traverser_1, async_fs_2, path, log_3, bundler_or_project_file_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class Bundler {
@@ -477,7 +506,7 @@ ${helpers.onPackageNotFound}
         }
         async getHelperFunctionsCode() {
             if (!this.helpersCode) {
-                let helpersRoot = path.resolve(__dirname, "./parts");
+                let helpersRoot = path.resolve(bundler_or_project_file_2.getBundlerRoot(), "./parts");
                 let envHelpersRoot = path.resolve(helpersRoot, this.opts.environment);
                 let [onPackageNotFound, waitLoad, runner] = await Promise.all([
                     path.resolve(envHelpersRoot, "on_package_not_found.js"),
@@ -691,7 +720,7 @@ define("event", ["require", "exports"], function (require, exports) {
     }
     exports.event = event;
 });
-define("tsc", ["require", "exports", "path", "event", "child_process", "log", "bundler_or_project_file"], function (require, exports, path, event_1, childProcess, log_5, bundler_or_project_file_2) {
+define("tsc", ["require", "exports", "path", "event", "child_process", "log", "bundler_or_project_file"], function (require, exports, path, event_1, childProcess, log_5, bundler_or_project_file_3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function waitEventOnce(obj, evtName) {
@@ -699,7 +728,7 @@ define("tsc", ["require", "exports", "path", "event", "child_process", "log", "b
     }
     class TSC {
         constructor(opts) {
-            this._isRunning = false;
+            this._runningCount = 0;
             this._codeBroken = false;
             this.afterCompilationRun = event_1.event();
             this.lastCompilationFileChanges = [];
@@ -707,13 +736,13 @@ define("tsc", ["require", "exports", "path", "event", "child_process", "log", "b
             this.tscPath = this.findTsc();
         }
         findTsc() {
-            let path = bundler_or_project_file_2.findBundlerOrProjectFile(this.opts.projectPath, "./node_modules/typescript/bin/tsc");
+            let path = bundler_or_project_file_3.findBundlerOrProjectFile(this.opts.projectPath, "./node_modules/typescript/bin/tsc");
             if (!path)
                 throw new Error("Could not find tsc executable.");
             return path;
         }
         get isRunning() {
-            return this._isRunning;
+            return !!this._runningCount;
         }
         get codeBroken() {
             return this._codeBroken;
@@ -757,7 +786,8 @@ define("tsc", ["require", "exports", "path", "event", "child_process", "log", "b
             }
         }
         processWatchLine(line) {
-            let lc = line.toLowerCase();
+            let lc = line.toLowerCase().replace("\u001bc", "").trim();
+            line = line.replace("\u001bc", "").trim();
             if (lc.startsWith("tsfile: ")) {
                 this.lastCompilationFileChanges.push(line.substr("tsfile: ".length).trim());
             }
@@ -770,18 +800,20 @@ define("tsc", ["require", "exports", "path", "event", "child_process", "log", "b
             else if (lc.match(/^[\d:\-\s]+found\s+\d+\s+errors/)) {
                 this.stopRunning(false);
             }
-            else if (line !== "\u001bc" && line.trim()) {
-                log_5.logError(line);
+            else if (line.trim()) {
+                console.error(line);
             }
         }
         startRunning() {
-            if (this.lastCompilationFileChanges.length > 0) {
+            if (this.lastCompilationFileChanges.length > 0 && !this.isRunning) {
                 throw new Error("Something strange happened (duplicate compilation start?)");
             }
-            this._isRunning = true;
+            this._runningCount++;
         }
         stopRunning(success) {
-            this._isRunning = false;
+            this._runningCount--;
+            if (this.isRunning)
+                return;
             this._codeBroken = !success;
             let data = {
                 filesChanged: this.lastCompilationFileChanges,
@@ -835,11 +867,11 @@ define("stdin_json_interface", ["require", "exports", "event", "log"], function 
     }
     exports.StdinJsonInterface = StdinJsonInterface;
 });
-define("main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "module_manager", "log", "stdin_json_interface"], function (require, exports, cli_1, fs, path, tsc_1, bundler_1, module_manager_2, log_7, stdin_json_interface_1) {
+define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "module_manager", "log", "stdin_json_interface", "bundler_or_project_file"], function (require, exports, cli_1, fs, path, tsc_1, bundler_1, module_manager_2, log_7, stdin_json_interface_1, bundler_or_project_file_4) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    function getMergedConfig() {
-        let cliArgs = new cli_1.CLI({
+    function parseCliArgs() {
+        return new cli_1.CLI({
             helpHeader: "A helper tool to assemble Javascript bundles out of Typescript projects.",
             definition: {
                 configPath: cli_1.CLI.str({ keys: "--config", definition: "Path to bundler configuration file that contains project-specific settings." }),
@@ -849,6 +881,8 @@ define("main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "mo
                 help: cli_1.CLI.help({ keys: ["-h", "--h", "-help", "--help"], definition: "Shows list of commands." })
             }
         }).parseArgs();
+    }
+    function getMergedConfig(cliArgs) {
         let bundlerConfig = (() => {
             let rawConfig = fs.readFileSync(cliArgs.configPath, "utf8");
             try {
@@ -871,14 +905,12 @@ define("main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "mo
         config.project = path.resolve(configDirPath, config.project);
         return config;
     }
-    async function main() {
-        let config = getMergedConfig();
-        log_7.logDebug("Started; got config.");
+    function createCommonInstances(config) {
         let tsc = new tsc_1.TSC({
             outDir: config.outDir,
             projectPath: config.project,
             target: config.fancy ? "es2018" : "es5",
-            watch: config.devmode
+            watch: !!config.devmode
         });
         let modman = new module_manager_2.ModuleManager({
             outDir: config.outDir,
@@ -891,19 +923,36 @@ define("main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "mo
             environment: config.environment,
             outFile: config.outFile
         });
-        log_7.logDebug("Initialized main classes.");
-        if (config.devmode) {
-            await doDevmode(tsc, modman, bundler);
+        return { tsc, bundler, modman };
+    }
+    async function runBundlerDevmode(cliArgs, bundlerRoot = __dirname, devmodeOpts = {}) {
+        bundler_or_project_file_4.setBundlerRoot(bundlerRoot);
+        cliArgs.devmode = true;
+        let { tsc, modman, bundler } = createCommonInstances(getMergedConfig(cliArgs));
+        return await doDevmode(tsc, modman, bundler, devmodeOpts);
+    }
+    exports.runBundlerDevmode = runBundlerDevmode;
+    async function runBundlerSingle(cliArgs, bundlerRoot = __dirname) {
+        bundler_or_project_file_4.setBundlerRoot(bundlerRoot);
+        cliArgs.devmode = false;
+        let { tsc, bundler } = createCommonInstances(getMergedConfig(cliArgs));
+        await doSingleRun(tsc, bundler);
+    }
+    exports.runBundlerSingle = runBundlerSingle;
+    async function tsBundlerMain(cliArgs = parseCliArgs()) {
+        if (cliArgs.devmode) {
+            await runBundlerDevmode(cliArgs, __dirname, { useStdio: true });
         }
         else {
-            await doSingleRun(tsc, bundler);
+            await runBundlerSingle(cliArgs);
         }
     }
-    exports.main = main;
-    async function doDevmode(tsc, modman, bundler) {
+    exports.tsBundlerMain = tsBundlerMain;
+    async function doDevmode(tsc, modman, bundler, opts = {}) {
         log_7.logDebug("Starting in devmode.");
         let isAssemblingNow = false;
         let afterReassembledHandlers = [];
+        let startWaiter = null;
         async function assemble() {
             log_7.logDebug("Starting to assemble the bundle.");
             let success = true;
@@ -934,35 +983,48 @@ define("main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "mo
                 }
             }
             catch (e) {
-                console.error("Failed: " + e.stack);
+                log_7.logError("Failed: " + e.stack);
                 success = false;
             }
-            process.stdout.write(JSON.stringify({ "action": "bundle", "success": success }) + "\n");
+            return success;
         }
-        let stdinWrap = new stdin_json_interface_1.StdinJsonInterface();
-        stdinWrap.onInput((action) => {
-            if (typeof (action) !== "object" || !action || Array.isArray(action)) {
-                throw new Error("Expected JSON object as stdin input, got " + action + " instead.");
-            }
-            switch (action.action) {
-                case "bundle": return assemble();
-                default: throw new Error("Unknown stdin action type: " + action.action);
-            }
-        });
+        if (opts.useStdio) {
+            let stdinWrap = new stdin_json_interface_1.StdinJsonInterface();
+            stdinWrap.onInput(async (action) => {
+                if (typeof (action) !== "object" || !action || Array.isArray(action)) {
+                    throw new Error("Expected JSON object as stdin input, got " + action + " instead.");
+                }
+                switch (action.action) {
+                    case "bundle":
+                        let success = await assemble();
+                        process.stdout.write(JSON.stringify({ "action": "bundle", "success": success }) + "\n");
+                        return;
+                    default: throw new Error("Unknown stdin action type: " + action.action);
+                }
+            });
+        }
         let firstRun = true;
         tsc.afterCompilationRun(async (results) => {
             results.filesChanged.forEach(file => {
                 modman.invalidateModuleByPath(file);
             });
             log_7.logDebug("Compilation success: " + (results.success ? "true" : "false") + "; files changed: " + results.filesChanged.length);
-            log_7.logDebug("First run = " + (firstRun ? "true" : "false"));
             if (firstRun) {
-                log_7.logDebug("First run completed; considering bundler started.");
-                process.stdout.write(JSON.stringify({ "action": "start", "success": true }) + "\n");
+                if (opts.useStdio) {
+                    process.stdout.write(JSON.stringify({ "action": "start", "success": true }) + "\n");
+                }
                 firstRun = false;
+                if (startWaiter) {
+                    startWaiter();
+                    startWaiter = null;
+                }
             }
         });
-        await tsc.run();
+        tsc.run();
+        await new Promise(ok => {
+            startWaiter = ok;
+        });
+        return assemble;
     }
     async function doSingleRun(tsc, bundler) {
         log_7.logDebug("Running TSC.");

@@ -3,6 +3,7 @@ import {DependencyTraverser} from "dependency_traverser";
 import {fsReadFile, fsWrite} from "async_fs";
 import * as path from "path";
 import {logDebug} from "log";
+import {getBundlerRoot} from "bundler_or_project_file";
 
 
 export interface BundlerOptions {
@@ -76,7 +77,7 @@ ${helpers.onPackageNotFound}
 	private helpersCode: HelperFunctionsCode | null = null;
 	private async getHelperFunctionsCode(): Promise<HelperFunctionsCode> {
 		if(!this.helpersCode){
-			let helpersRoot = path.resolve(__dirname, "./parts");
+			let helpersRoot = path.resolve(getBundlerRoot(), "./parts");
 			let envHelpersRoot = path.resolve(helpersRoot, this.opts.environment);
 			let [onPackageNotFound, waitLoad, runner] = await Promise.all([
 				path.resolve(envHelpersRoot, "on_package_not_found.js"),

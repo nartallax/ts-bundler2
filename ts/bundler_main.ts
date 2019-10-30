@@ -6,6 +6,7 @@ import {Bundler} from "bundler";
 import {ModuleManager} from "module_manager";
 import {setLogVerbosityLevel, logError, logDebug} from "log";
 import {StdinJsonInterface} from "stdin_json_interface";
+import {setBundlerRoot} from "bundler_or_project_file";
 
 export interface BundlerConfig {
 	entryPointModule: string;
@@ -16,9 +17,22 @@ export interface BundlerConfig {
 	outFile: string;
 }
 
-/** получаем единый конфиг тула, собранный из CLI-опций и значений в конфиге проекта */
-function getMergedConfig(){
-	let cliArgs = new CLI({
+export interface BundlerCliArgs {
+	configPath: string;
+	fancy?: boolean;
+	devmode?: boolean;
+	verbose?: boolean;
+	help?: boolean;
+}
+
+export type BundlerMergedConfig = BundlerConfig & BundlerCliArgs;
+
+export interface BundlerDevmodeOptions {
+	useStdio?: boolean;
+}
+
+function parseCliArgs(): BundlerCliArgs {
+	return new CLI({
 		helpHeader: "A helper tool to assemble Javascript bundles out of Typescript projects.",
 		definition: {
 			configPath: CLI.str({ keys: "--config", definition: "Path to bundler configuration file that contains project-specific settings." }),
@@ -28,7 +42,10 @@ function getMergedConfig(){
 			help: CLI.help({ keys: ["-h", "--h", "-help", "--help"], definition: "Shows list of commands." })
 		}
 	}).parseArgs();
+}
 
+/** получаем единый конфиг тула, собранный из CLI-опций и значений в конфиге проекта */
+function getMergedConfig(cliArgs: BundlerCliArgs): BundlerMergedConfig {
 	let bundlerConfig = (() => {
 		let rawConfig = fs.readFileSync(cliArgs.configPath, "utf8");
 		try {
@@ -56,15 +73,12 @@ function getMergedConfig(){
 	return config;
 }
 
-export async function main(){
-	let config = getMergedConfig();
-	logDebug("Started; got config.");
-
+function createCommonInstances(config: BundlerMergedConfig): { tsc: TSC, modman: ModuleManager, bundler: Bundler }{
 	let tsc = new TSC({
 		outDir: config.outDir,
 		projectPath: config.project,
 		target: config.fancy? "es2018": "es5",
-		watch: config.devmode
+		watch: !!config.devmode
 	});
 
 	let modman = new ModuleManager({
@@ -80,14 +94,29 @@ export async function main(){
 		outFile: config.outFile
 	});
 
-	logDebug("Initialized main classes.");
+	return {tsc, bundler, modman}
+}
 
-	if(config.devmode){
-		await doDevmode(tsc, modman, bundler);
+export async function runBundlerDevmode(cliArgs: BundlerCliArgs, bundlerRoot: string = __dirname, devmodeOpts: BundlerDevmodeOptions = {}): Promise<() => Promise<boolean>>{
+	setBundlerRoot(bundlerRoot);
+	cliArgs.devmode = true;
+	let {tsc, modman, bundler} = createCommonInstances(getMergedConfig(cliArgs));
+	return await doDevmode(tsc, modman, bundler, devmodeOpts);
+}
+
+export async function runBundlerSingle(cliArgs: BundlerCliArgs, bundlerRoot: string = __dirname): Promise<void>{
+	setBundlerRoot(bundlerRoot);
+	cliArgs.devmode = false;
+	let {tsc, bundler} = createCommonInstances(getMergedConfig(cliArgs));
+	await doSingleRun(tsc, bundler);
+}
+
+export async function tsBundlerMain(cliArgs: BundlerCliArgs = parseCliArgs()){
+	if(cliArgs.devmode){
+		await runBundlerDevmode(cliArgs, __dirname, {useStdio: true});
 	} else {
-		await doSingleRun(tsc, bundler);
+		await runBundlerSingle(cliArgs);
 	}
-
 }
 
 type StdinAction = StdinBunldeAction;
@@ -95,14 +124,14 @@ interface StdinBunldeAction {
 	action: "bundle"
 }
 
-
-async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler){
+async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts: BundlerDevmodeOptions = {}){
 	logDebug("Starting in devmode.");
 	let isAssemblingNow = false;
 
 	let afterReassembledHandlers = [] as (() => void)[];
+	let startWaiter: (() => void) | null = null;
 
-	async function assemble(){
+	async function assemble(): Promise<boolean> {
 		logDebug("Starting to assemble the bundle.");
 		let success = true;
 
@@ -139,24 +168,30 @@ async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler){
 				}
 			}
 		} catch(e){
-			console.error("Failed: " + e.stack)
+			logError("Failed: " + e.stack)
 			success = false;
 		}
 
-		process.stdout.write(JSON.stringify({"action": "bundle", "success": success}) + "\n");
+		return success;
 	}
 	
-	let stdinWrap = new StdinJsonInterface();
-	stdinWrap.onInput((action: StdinAction) => {
-		if(typeof(action) !== "object" || !action || Array.isArray(action)){
-			throw new Error("Expected JSON object as stdin input, got " + action + " instead.");
-		}
+	if(opts.useStdio){
+		let stdinWrap = new StdinJsonInterface();
+		stdinWrap.onInput(async (action: StdinAction) => {
+			if(typeof(action) !== "object" || !action || Array.isArray(action)){
+				throw new Error("Expected JSON object as stdin input, got " + action + " instead.");
+			}
 
-		switch(action.action){
-			case "bundle": return assemble();
-			default: throw new Error("Unknown stdin action type: " + action.action);
-		}
-	});
+			switch(action.action){
+				case "bundle": 
+					let success = await assemble();
+					process.stdout.write(JSON.stringify({"action": "bundle", "success": success}) + "\n");
+					return;
+				default: throw new Error("Unknown stdin action type: " + action.action);
+			}
+		});
+	}
+	
 
 	let firstRun = true;
 	tsc.afterCompilationRun(async results => {
@@ -164,15 +199,25 @@ async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler){
 			modman.invalidateModuleByPath(file);
 		})
 		logDebug("Compilation success: " + (results.success? "true": "false") + "; files changed: " + results.filesChanged.length);
-		logDebug("First run = " + (firstRun? "true": "false"));
 		if(firstRun){
-			logDebug("First run completed; considering bundler started.");
-			process.stdout.write(JSON.stringify({"action": "start", "success": true}) + "\n");
+			if(opts.useStdio){
+				process.stdout.write(JSON.stringify({"action": "start", "success": true}) + "\n");
+			}
+			
 			firstRun = false;
+			if(startWaiter){
+				startWaiter();
+				startWaiter = null;
+			}
 		}
 	});
 
-	await tsc.run();
+	tsc.run();
+	await new Promise(ok => {
+		startWaiter = ok
+	});
+
+	return assemble;
 }
 
 async function doSingleRun(tsc: TSC, bundler: Bundler){
