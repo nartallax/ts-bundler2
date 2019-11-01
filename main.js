@@ -404,7 +404,7 @@ define("dependency_traverser", ["require", "exports", "module_manager", "log"], 
             return [...result].sort();
         }
         async getTransitiveDependencyListRecursive(name, result) {
-            if (this.knownAbsentModules.has(name) || result.has(name)) {
+            if (this.knownAbsentModules.has(name)) {
                 return;
             }
             log_2.logDebug("Starting to resolve dependencies of " + name);
@@ -415,6 +415,9 @@ define("dependency_traverser", ["require", "exports", "module_manager", "log"], 
                 }
                 seq.push(name);
                 throw new Error("Circular dependency detected: " + seq.join(" -> "));
+            }
+            if (result.has(name)) {
+                return;
             }
             let mod;
             try {

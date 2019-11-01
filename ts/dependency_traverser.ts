@@ -31,8 +31,8 @@ export class DependencyTraverser {
 	}
 
 	private async getTransitiveDependencyListRecursive(name: string, result: Set<string>): Promise<void> {
-		if(this.knownAbsentModules.has(name) || result.has(name)){
-			return; // мы уже обрабатывали этот модуль, скипаем
+		if(this.knownAbsentModules.has(name)){
+			return;
 		}
 
 		logDebug("Starting to resolve dependencies of " + name)
@@ -44,6 +44,10 @@ export class DependencyTraverser {
 			}
 			seq.push(name);
 			throw new Error("Circular dependency detected: " + seq.join(" -> "));
+		}
+
+		if(result.has(name)){
+			return;
 		}
 
 		let mod: ModuleDescription;
