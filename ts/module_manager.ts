@@ -6,6 +6,7 @@ import {ModuleName} from "module_name";
 import {logWarn} from "log";
 import {findBundlerOrProjectFile} from "bundler_or_project_file";
 import {pathIncludes} from "path_includes";
+import {minifyJavascript} from "minify";
 
 export class ModuleNotFoundError {
 
@@ -31,12 +32,16 @@ interface TsConfig {
 
 export interface ModuleManagerOptions {
 	outDir: string;
+	minify: boolean;
 	tsconfigPath: string;
 }
 
 export interface ModuleDescription {
 	/** код модуля (т.е. "define(...)") */
 	readonly code: string;
+
+	/** минифицированная версия code. если minify = false, то просто code */
+	readonly minCode: string;
 
 	/** имена модулей, от которых этот модуль зависит */
 	readonly dependencies: readonly string[];
@@ -45,7 +50,7 @@ export interface ModuleDescription {
 	readonly jsFilePath: string;
 }
 
-const specialDependencyNames: ReadonlySet<string> = new Set(["exports", "require", "tslib"]);
+const specialDependencyNames: ReadonlySet<string> = new Set(["exports", "require"]);
 
 /** этот класс предоставляет доступ к скомпиленным файлам модулей и умеет извлекать из них информацию */
 export class ModuleManager {
@@ -53,10 +58,12 @@ export class ModuleManager {
 	private outDirs: readonly string[];
 	private knownModules: { [k: string]: ModuleDescription } = {}
 	private readonly tsconfigPath: string;
+	private readonly needMinify: boolean;
 
 	constructor(opts: ModuleManagerOptions){
 		this.outDirs = this.extractSourcePathsFromConfig(opts.tsconfigPath, opts.outDir);
 		this.tsconfigPath = opts.tsconfigPath;
+		this.needMinify = opts.minify;
 	}
 
 	/** получить описание модуля по его имени */
@@ -72,12 +79,13 @@ export class ModuleManager {
 		let jsFilePath = await this.findModulePath(name);
 		let code = (await fsReadFile(jsFilePath)).toString("utf8");
 		let { dependencies } = evalModule(name, code);
+		let minCode = this.needMinify? minifyJavascript(name, code): code;
 
 		dependencies = dependencies
 			.filter(dep => !specialDependencyNames.has(dep))
 			.map(rawDep => ModuleName.resolve(name, rawDep));
 
-		return { jsFilePath, code, dependencies }
+		return { jsFilePath, code, minCode, dependencies }
 	}
 	
 	/** найти путь к скомпиленному файлу модуля, имея его имя */

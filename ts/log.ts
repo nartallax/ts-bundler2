@@ -5,7 +5,7 @@ function threeDig(x: number){ return x > 99? "" + x: "0" + twoDig(x) }
 
 function timeStr(){
 	let d = new Date();
-	return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} ${twoDig(d.getHours())}:${twoDig(d.getMinutes())}:${twoDig(d.getSeconds())}:${threeDig(d.getMilliseconds())}`
+	return `${d.getFullYear()}.${twoDig(d.getMonth() + 1)}.${twoDig(d.getDate())} ${twoDig(d.getHours())}:${twoDig(d.getMinutes())}:${twoDig(d.getSeconds())}:${threeDig(d.getMilliseconds())}`
 }
 
 export function setLogVerbosityLevel(level: number){

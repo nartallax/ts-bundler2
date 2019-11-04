@@ -54,22 +54,23 @@ ${helpers.onPackageNotFound}
 	/** получить строку, в которой содержится JSON-объект типа "имя модуля" -> "код модуля" */
 	private async getModuleMapString(): Promise<string> {
 		// здесь мы собираем JSON около-вручную, вместо того, чтобы собрать объект и сделать ему один JSON.stringify
-		// нужно это потому, что порядок строк внутри объекта не гарантируется
+		// нужно это потому, что порядок ключей внутри object-а не гарантируется
 		// а нам хочется получать стабильный вывод, который не будет меняться без причины
 		// (это нужно, например, для кеширования скрипта по его хешу)
 		let traverser = new DependencyTraverser(this.opts.modman);
-		let moduleList = await traverser.getTransitiveDependencyListFor(this.opts.entryPointModule);
+		let moduleSet = await traverser.getTransitiveDependenciesFor(this.opts.entryPointModule);
+		let moduleList = [...moduleSet].sort().filter(_ => _ !== "tslib");
 		let pairStrings = await Promise.all(moduleList.map(async name => {
 			let mod = await this.opts.modman.getModule(name);
-			return JSON.stringify(name) + ":" + JSON.stringify(mod.code);
+			return JSON.stringify(name) + ":" + JSON.stringify(mod.minCode);
 		}));
 		logDebug("Got base module name-code pairs.");
 
-		// tslib крепим как просто еще один модуль, но обрабатывать его после запуска будем по-особому
-		// на самом деле, в каких-то случаях он не нужен, т.к. мы собираем под достаточно позднюю версию ecmascript
-		// но лишним не будет, она не такая уж и большая. на всякий случай.
-		pairStrings.push(JSON.stringify("tslib") + ":" + JSON.stringify(await this.opts.modman.getTslib()));
-		logDebug("Added tslib.");
+		if(moduleSet.has("tslib")){
+			// tslib крепим как просто еще один модуль, но обрабатывать его после запуска будем по-особому
+			pairStrings.push(JSON.stringify("tslib") + ":" + JSON.stringify(await this.opts.modman.getTslib()));
+			logDebug("Added tslib.");
+		}
 		
 		return "{\n" + pairStrings.join(",\n") + "\n}";
 	}

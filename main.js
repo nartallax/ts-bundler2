@@ -1,7 +1,3 @@
-/** код в этом файле нужен, чтобы запускать сам бандлер
- * вручную его запускать не нужно никогда, он подклеивается к результату компиляции самого бандлера в compile.sh
- */
-
 let define = (() => {
 	setTimeout(async () => {
 		try {
@@ -54,7 +50,6 @@ let define = (() => {
 		defMap[name] = {deps, def};
 	}
 })();
-
 define("async_fs", ["require", "exports", "fs"], function (require, exports, fs) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -178,7 +173,7 @@ define("log", ["require", "exports"], function (require, exports) {
     function threeDig(x) { return x > 99 ? "" + x : "0" + twoDig(x); }
     function timeStr() {
         let d = new Date();
-        return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} ${twoDig(d.getHours())}:${twoDig(d.getMinutes())}:${twoDig(d.getSeconds())}:${threeDig(d.getMilliseconds())}`;
+        return `${d.getFullYear()}.${twoDig(d.getMonth() + 1)}.${twoDig(d.getDate())} ${twoDig(d.getHours())}:${twoDig(d.getMinutes())}:${twoDig(d.getSeconds())}:${threeDig(d.getMilliseconds())}`;
     }
     function setLogVerbosityLevel(level) {
         logVerbosityLevel = level;
@@ -248,7 +243,36 @@ define("path_includes", ["require", "exports", "path"], function (require, expor
     }
     exports.pathIncludes = pathIncludes;
 });
-define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_module", "module_name", "log", "bundler_or_project_file", "path_includes"], function (require, exports, fs, path, async_fs_1, eval_module_1, module_name_1, log_1, bundler_or_project_file_1, path_includes_1) {
+define("minify", ["require", "exports", "uglify-js", "log"], function (require, exports, UglifyJS, log_1) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    function minifyJavascript(name, code) {
+        let result = UglifyJS.minify(code, {
+            compress: true,
+            ie8: true,
+            keep_fnames: true,
+            mangle: false,
+            warnings: false,
+            toplevel: false,
+            output: {
+                comments: false,
+                beautify: false,
+                max_line_len: 1024,
+                preserve_line: false
+            }
+        });
+        result.warnings && result.warnings.forEach(warning => {
+            log_1.logWarn("Minifier warning for " + name + ": " + warning);
+        });
+        if (result.error) {
+            log_1.logError("Minifier error for " + name + ": " + result.error);
+            throw new Error("Minifier error for " + name + ": " + result.error);
+        }
+        return result.code;
+    }
+    exports.minifyJavascript = minifyJavascript;
+});
+define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_module", "module_name", "log", "bundler_or_project_file", "path_includes", "minify"], function (require, exports, fs, path, async_fs_1, eval_module_1, module_name_1, log_2, bundler_or_project_file_1, path_includes_1, minify_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class ModuleNotFoundError {
@@ -259,13 +283,14 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
         }
     }
     exports.ModuleNotFoundError = ModuleNotFoundError;
-    const specialDependencyNames = new Set(["exports", "require", "tslib"]);
+    const specialDependencyNames = new Set(["exports", "require"]);
     class ModuleManager {
         constructor(opts) {
             this.knownModules = {};
             this._tslibCode = null;
             this.outDirs = this.extractSourcePathsFromConfig(opts.tsconfigPath, opts.outDir);
             this.tsconfigPath = opts.tsconfigPath;
+            this.needMinify = opts.minify;
         }
         async getModule(name) {
             if (!(name in this.knownModules)) {
@@ -277,10 +302,11 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
             let jsFilePath = await this.findModulePath(name);
             let code = (await async_fs_1.fsReadFile(jsFilePath)).toString("utf8");
             let { dependencies } = eval_module_1.evalModule(name, code);
+            let minCode = this.needMinify ? minify_1.minifyJavascript(name, code) : code;
             dependencies = dependencies
                 .filter(dep => !specialDependencyNames.has(dep))
                 .map(rawDep => module_name_1.ModuleName.resolve(name, rawDep));
-            return { jsFilePath, code, dependencies };
+            return { jsFilePath, code, minCode, dependencies };
         }
         async findModulePath(name) {
             let moduleEndPath = this.nameToPathPart(name);
@@ -311,7 +337,7 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
             let mod = this.knownModules[name];
             delete this.knownModules[name];
             if (mod.jsFilePath !== path.resolve(jsFilePath)) {
-                log_1.logWarn("Detected module movement: " + mod.jsFilePath + " -> " + jsFilePath + "; deleting outdated file.");
+                log_2.logWarn("Detected module movement: " + mod.jsFilePath + " -> " + jsFilePath + "; deleting outdated file.");
                 await async_fs_1.fsUnlink(mod.jsFilePath);
             }
         }
@@ -382,7 +408,7 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
     }
     exports.ModuleManager = ModuleManager;
 });
-define("dependency_traverser", ["require", "exports", "module_manager", "log"], function (require, exports, module_manager_1, log_2) {
+define("dependency_traverser", ["require", "exports", "module_manager", "log"], function (require, exports, module_manager_1, log_3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class DependencyTraverser {
@@ -391,23 +417,23 @@ define("dependency_traverser", ["require", "exports", "module_manager", "log"], 
             this.knownAbsentModules = new Set();
             this.modman = modman;
         }
-        async getTransitiveDependencyListFor(name) {
-            log_2.logDebug("Starting dependency traversing.");
+        async getTransitiveDependenciesFor(name) {
+            log_3.logDebug("Starting dependency traversing.");
             this.modSet.clear();
             this.knownAbsentModules.clear();
             let result = new Set();
             await this.getTransitiveDependencyListRecursive(name, result);
             if (this.knownAbsentModules.size > 0) {
-                log_2.logWarn("Assuming following modules to be provided: " + [...this.knownAbsentModules].join(", "));
+                log_3.logWarn("Assuming following modules to be provided: " + [...this.knownAbsentModules].join(", "));
             }
-            log_2.logDebug("Done traversing dependencies; full list of dependencies is " + result.size + " entries long.");
-            return [...result].sort();
+            log_3.logDebug("Done traversing dependencies; full list of dependencies is " + result.size + " entries long.");
+            return result;
         }
         async getTransitiveDependencyListRecursive(name, result) {
             if (this.knownAbsentModules.has(name)) {
                 return;
             }
-            log_2.logDebug("Starting to resolve dependencies of " + name);
+            log_3.logDebug("Starting to resolve dependencies of " + name);
             if (this.modSet.has(name)) {
                 let seq = [...this.modSet.asArray()];
                 while (seq.length > 0 && seq[0] !== name) {
@@ -419,13 +445,17 @@ define("dependency_traverser", ["require", "exports", "module_manager", "log"], 
             if (result.has(name)) {
                 return;
             }
+            if (name === "tslib") {
+                result.add(name);
+                return;
+            }
             let mod;
             try {
                 mod = await this.modman.getModule(name);
             }
             catch (e) {
                 if (e instanceof module_manager_1.ModuleNotFoundError) {
-                    log_2.logDebug("Known absent module found: " + name);
+                    log_3.logDebug("Known absent module found: " + name);
                     this.knownAbsentModules.add(name);
                 }
                 return;
@@ -470,7 +500,7 @@ define("dependency_traverser", ["require", "exports", "module_manager", "log"], 
         }
     }
 });
-define("bundler", ["require", "exports", "dependency_traverser", "async_fs", "path", "log", "bundler_or_project_file"], function (require, exports, dependency_traverser_1, async_fs_2, path, log_3, bundler_or_project_file_2) {
+define("bundler", ["require", "exports", "dependency_traverser", "async_fs", "path", "log", "bundler_or_project_file"], function (require, exports, dependency_traverser_1, async_fs_2, path, log_4, bundler_or_project_file_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class Bundler {
@@ -497,14 +527,17 @@ ${helpers.onPackageNotFound}
         }
         async getModuleMapString() {
             let traverser = new dependency_traverser_1.DependencyTraverser(this.opts.modman);
-            let moduleList = await traverser.getTransitiveDependencyListFor(this.opts.entryPointModule);
+            let moduleSet = await traverser.getTransitiveDependenciesFor(this.opts.entryPointModule);
+            let moduleList = [...moduleSet].sort().filter(_ => _ !== "tslib");
             let pairStrings = await Promise.all(moduleList.map(async (name) => {
                 let mod = await this.opts.modman.getModule(name);
-                return JSON.stringify(name) + ":" + JSON.stringify(mod.code);
+                return JSON.stringify(name) + ":" + JSON.stringify(mod.minCode);
             }));
-            log_3.logDebug("Got base module name-code pairs.");
-            pairStrings.push(JSON.stringify("tslib") + ":" + JSON.stringify(await this.opts.modman.getTslib()));
-            log_3.logDebug("Added tslib.");
+            log_4.logDebug("Got base module name-code pairs.");
+            if (moduleSet.has("tslib")) {
+                pairStrings.push(JSON.stringify("tslib") + ":" + JSON.stringify(await this.opts.modman.getTslib()));
+                log_4.logDebug("Added tslib.");
+            }
             return "{\n" + pairStrings.join(",\n") + "\n}";
         }
         async getHelperFunctionsCode() {
@@ -523,7 +556,7 @@ ${helpers.onPackageNotFound}
     }
     exports.Bundler = Bundler;
 });
-define("cli", ["require", "exports", "log"], function (require, exports, log_4) {
+define("cli", ["require", "exports", "log"], function (require, exports, log_5) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class CLI {
@@ -538,7 +571,7 @@ define("cli", ["require", "exports", "log"], function (require, exports, log_4) 
             return process.exit(1);
         }
         static printErrorAndExit(error) {
-            log_4.logError(error.message);
+            log_5.logError(error.message);
             return process.exit(1);
         }
         static str(params) {
@@ -723,7 +756,7 @@ define("event", ["require", "exports"], function (require, exports) {
     }
     exports.event = event;
 });
-define("tsc", ["require", "exports", "path", "event", "child_process", "log", "bundler_or_project_file"], function (require, exports, path, event_1, childProcess, log_5, bundler_or_project_file_3) {
+define("tsc", ["require", "exports", "path", "event", "child_process", "log", "bundler_or_project_file"], function (require, exports, path, event_1, childProcess, log_6, bundler_or_project_file_3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function waitEventOnce(obj, evtName) {
@@ -831,13 +864,13 @@ define("tsc", ["require", "exports", "path", "event", "child_process", "log", "b
                 cwd: path.dirname(opts.projectPath),
                 windowsHide: true
             });
-            proc.on("error", e => log_5.logError("TSC process errored: " + e.message));
+            proc.on("error", e => log_6.logError("TSC process errored: " + e.message));
             return proc;
         }
     }
     exports.TSC = TSC;
 });
-define("stdin_json_interface", ["require", "exports", "event", "log"], function (require, exports, event_2, log_6) {
+define("stdin_json_interface", ["require", "exports", "event", "log"], function (require, exports, event_2, log_7) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     class StdinJsonInterface {
@@ -852,7 +885,7 @@ define("stdin_json_interface", ["require", "exports", "event", "log"], function 
                         input = JSON.parse(line);
                     }
                     catch (e) {
-                        log_6.logError("Could not parse JSON from stdin: " + line);
+                        log_7.logError("Could not parse JSON from stdin: " + line);
                         return;
                     }
                     finally {
@@ -862,7 +895,7 @@ define("stdin_json_interface", ["require", "exports", "event", "log"], function 
                         this.onInput.fire(input);
                     }
                     catch (e) {
-                        log_6.logError("Failed to process stdin input: " + e.stack);
+                        log_7.logError("Failed to process stdin input: " + e.stack);
                     }
                 }
             });
@@ -870,16 +903,17 @@ define("stdin_json_interface", ["require", "exports", "event", "log"], function 
     }
     exports.StdinJsonInterface = StdinJsonInterface;
 });
-define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "module_manager", "log", "stdin_json_interface", "bundler_or_project_file"], function (require, exports, cli_1, fs, path, tsc_1, bundler_1, module_manager_2, log_7, stdin_json_interface_1, bundler_or_project_file_4) {
+define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundler", "module_manager", "log", "stdin_json_interface", "bundler_or_project_file"], function (require, exports, cli_1, fs, path, tsc_1, bundler_1, module_manager_2, log_8, stdin_json_interface_1, bundler_or_project_file_4) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function parseCliArgs() {
         return new cli_1.CLI({
             helpHeader: "A helper tool to assemble Javascript bundles out of Typescript projects.",
             definition: {
-                configPath: cli_1.CLI.str({ keys: "--config", definition: "Path to bundler configuration file that contains project-specific settings." }),
+                configPath: cli_1.CLI.str({ keys: "--config", definition: "Path to bundler configuration file that contains project-specific settings. Example of config could be found in bundler_config_sample.json ." }),
                 fancy: cli_1.CLI.bool({ keys: "--fancy", definition: "Output beatiful debuggable code (instead of compressed mess that complies to older ECMA version)." }),
-                devmode: cli_1.CLI.bool({ keys: "--devmode", definition: "Toggles compilation-after-any-source-change. Also sets --fancy to true." }),
+                devmode: cli_1.CLI.bool({ keys: "--devmode", definition: "Enables compilation-after-any-source-change. Also sets --fancy to true." }),
+                useStdio: cli_1.CLI.bool({ keys: "--use-stdio", definition: "Enables communication with outside world through STDIO. Only usable in devmode." }),
                 verbose: cli_1.CLI.bool({ keys: ["-v", "--verbose"], definition: "Adds some more bundler-debug-related trash in stderr." }),
                 help: cli_1.CLI.help({ keys: ["-h", "--h", "-help", "--help"], definition: "Shows list of commands." })
             }
@@ -892,12 +926,12 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
                 return JSON.parse(rawConfig);
             }
             catch (e) {
-                log_7.logError("Failed to parse bundler config at" + cliArgs.configPath + ": JSON malformed: " + e.message);
+                log_8.logError("Failed to parse bundler config at" + cliArgs.configPath + ": JSON malformed: " + e.message);
                 process.exit(1);
             }
         })();
         let config = { ...cliArgs, ...bundlerConfig };
-        log_7.setLogVerbosityLevel(config.verbose ? 1 : 0);
+        log_8.setLogVerbosityLevel(config.verbose ? 1 : 0);
         if (config.devmode) {
             config.fancy = true;
         }
@@ -917,7 +951,8 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
         });
         let modman = new module_manager_2.ModuleManager({
             outDir: config.outDir,
-            tsconfigPath: config.project
+            tsconfigPath: config.project,
+            minify: !config.fancy
         });
         let bundler = new bundler_1.Bundler({
             modman: modman,
@@ -928,11 +963,12 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
         });
         return { tsc, bundler, modman };
     }
-    async function runBundlerDevmode(cliArgs, bundlerRoot = __dirname, devmodeOpts = {}) {
+    async function runBundlerDevmode(cliArgs, bundlerRoot = __dirname) {
         bundler_or_project_file_4.setBundlerRoot(bundlerRoot);
         cliArgs.devmode = true;
-        let { tsc, modman, bundler } = createCommonInstances(getMergedConfig(cliArgs));
-        return await doDevmode(tsc, modman, bundler, devmodeOpts);
+        let mergedConfig = getMergedConfig(cliArgs);
+        let { tsc, modman, bundler } = createCommonInstances(mergedConfig);
+        return await doDevmode(tsc, modman, bundler, mergedConfig);
     }
     exports.runBundlerDevmode = runBundlerDevmode;
     async function runBundlerSingle(cliArgs, bundlerRoot = __dirname) {
@@ -944,20 +980,20 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
     exports.runBundlerSingle = runBundlerSingle;
     async function tsBundlerMain(cliArgs = parseCliArgs()) {
         if (cliArgs.devmode) {
-            await runBundlerDevmode(cliArgs, __dirname, { useStdio: true });
+            await runBundlerDevmode(cliArgs);
         }
         else {
             await runBundlerSingle(cliArgs);
         }
     }
     exports.tsBundlerMain = tsBundlerMain;
-    async function doDevmode(tsc, modman, bundler, opts = {}) {
-        log_7.logDebug("Starting in devmode.");
+    async function doDevmode(tsc, modman, bundler, opts) {
+        log_8.logDebug("Starting in devmode.");
         let isAssemblingNow = false;
         let afterReassembledHandlers = [];
         let startWaiter = null;
         async function assemble() {
-            log_7.logDebug("Starting to assemble the bundle.");
+            log_8.logDebug("Starting to assemble the bundle.");
             let success = true;
             try {
                 if (!tsc.isRunning) {
@@ -967,7 +1003,7 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
                     await new Promise(ok => tsc.afterCompilationRun.once(ok));
                 }
                 if (tsc.codeBroken) {
-                    log_7.logError("Won't assemble bundle: last compilation was not successful.");
+                    log_8.logError("Won't assemble bundle: last compilation was not successful.");
                     success = false;
                 }
                 if (isAssemblingNow) {
@@ -976,7 +1012,7 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
                 isAssemblingNow = true;
                 try {
                     await bundler.assembleBundle();
-                    log_7.logDebug("Bundle assembled.");
+                    log_8.logDebug("Bundle assembled.");
                 }
                 finally {
                     isAssemblingNow = false;
@@ -986,7 +1022,7 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
                 }
             }
             catch (e) {
-                log_7.logError("Failed: " + e.stack);
+                log_8.logError("Failed: " + e.stack);
                 success = false;
             }
             return success;
@@ -1011,7 +1047,7 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
             results.filesChanged.forEach(file => {
                 modman.invalidateModuleByPath(file);
             });
-            log_7.logDebug("Compilation success: " + (results.success ? "true" : "false") + "; files changed: " + results.filesChanged.length);
+            log_8.logDebug("Compilation success: " + (results.success ? "true" : "false") + "; files changed: " + results.filesChanged.length);
             if (firstRun) {
                 if (opts.useStdio) {
                     process.stdout.write(JSON.stringify({ "action": "start", "success": true }) + "\n");
@@ -1030,10 +1066,10 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
         return assemble;
     }
     async function doSingleRun(tsc, bundler) {
-        log_7.logDebug("Running TSC.");
+        log_8.logDebug("Running TSC.");
         await tsc.run();
-        log_7.logDebug("TSC completed; assembling bundle.");
+        log_8.logDebug("TSC completed; assembling bundle.");
         await bundler.assembleBundle();
-        log_7.logDebug("Bundle assebmled.");
+        log_8.logDebug("Bundle assebmled.");
     }
 });

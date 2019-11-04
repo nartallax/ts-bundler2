@@ -15,7 +15,7 @@ export class DependencyTraverser {
 
 
 	/** получить полный список зависимостей указанного модуля (включая этот же модуль) */
-	async getTransitiveDependencyListFor(name: string): Promise<string[]> {
+	async getTransitiveDependenciesFor(name: string): Promise<Set<string>> {
 		logDebug("Starting dependency traversing.");
 		
 		this.modSet.clear();
@@ -27,7 +27,7 @@ export class DependencyTraverser {
 		}
 
 		logDebug("Done traversing dependencies; full list of dependencies is " + result.size + " entries long.");
-		return [...result].sort();
+		return result;
 	}
 
 	private async getTransitiveDependencyListRecursive(name: string, result: Set<string>): Promise<void> {
@@ -47,6 +47,11 @@ export class DependencyTraverser {
 		}
 
 		if(result.has(name)){
+			return;
+		}
+
+		if(name === "tslib"){ // специальная либа
+			result.add(name);
 			return;
 		}
 

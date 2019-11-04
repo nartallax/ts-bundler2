@@ -23,21 +23,19 @@ export interface BundlerCliArgs {
 	devmode?: boolean;
 	verbose?: boolean;
 	help?: boolean;
+	useStdio?: boolean;
 }
 
 export type BundlerMergedConfig = BundlerConfig & BundlerCliArgs;
-
-export interface BundlerDevmodeOptions {
-	useStdio?: boolean;
-}
 
 function parseCliArgs(): BundlerCliArgs {
 	return new CLI({
 		helpHeader: "A helper tool to assemble Javascript bundles out of Typescript projects.",
 		definition: {
-			configPath: CLI.str({ keys: "--config", definition: "Path to bundler configuration file that contains project-specific settings." }),
+			configPath: CLI.str({ keys: "--config", definition: "Path to bundler configuration file that contains project-specific settings. Example of config could be found in bundler_config_sample.json ." }),
 			fancy: CLI.bool({ keys: "--fancy", definition: "Output beatiful debuggable code (instead of compressed mess that complies to older ECMA version)." }),
-			devmode: CLI.bool({ keys: "--devmode", definition: "Toggles compilation-after-any-source-change. Also sets --fancy to true." }),
+			devmode: CLI.bool({ keys: "--devmode", definition: "Enables compilation-after-any-source-change. Also sets --fancy to true." }),
+			useStdio: CLI.bool({ keys: "--use-stdio", definition: "Enables communication with outside world through STDIO. Only usable in devmode." }),
 			verbose: CLI.bool({ keys: ["-v", "--verbose"], definition: "Adds some more bundler-debug-related trash in stderr." }),
 			help: CLI.help({ keys: ["-h", "--h", "-help", "--help"], definition: "Shows list of commands." })
 		}
@@ -83,7 +81,8 @@ function createCommonInstances(config: BundlerMergedConfig): { tsc: TSC, modman:
 
 	let modman = new ModuleManager({
 		outDir: config.outDir,
-		tsconfigPath: config.project
+		tsconfigPath: config.project,
+		minify: !config.fancy
 	})
 
 	let bundler = new Bundler({
@@ -97,13 +96,18 @@ function createCommonInstances(config: BundlerMergedConfig): { tsc: TSC, modman:
 	return {tsc, bundler, modman}
 }
 
-export async function runBundlerDevmode(cliArgs: BundlerCliArgs, bundlerRoot: string = __dirname, devmodeOpts: BundlerDevmodeOptions = {}): Promise<() => Promise<boolean>>{
+/** функция запуска бандлера в devmode
+ * возвращает функцию, которая при вызове перезаписывает outFile и возвращает результат (успех/неуспех)
+ */
+export async function runBundlerDevmode(cliArgs: BundlerCliArgs, bundlerRoot: string = __dirname): Promise<() => Promise<boolean>>{
 	setBundlerRoot(bundlerRoot);
 	cliArgs.devmode = true;
-	let {tsc, modman, bundler} = createCommonInstances(getMergedConfig(cliArgs));
-	return await doDevmode(tsc, modman, bundler, devmodeOpts);
+	let mergedConfig = getMergedConfig(cliArgs);
+	let {tsc, modman, bundler} = createCommonInstances(mergedConfig);
+	return await doDevmode(tsc, modman, bundler, mergedConfig);
 }
 
+/** функция запуска бандлера в режиме одной компиляции */
 export async function runBundlerSingle(cliArgs: BundlerCliArgs, bundlerRoot: string = __dirname): Promise<void>{
 	setBundlerRoot(bundlerRoot);
 	cliArgs.devmode = false;
@@ -111,9 +115,10 @@ export async function runBundlerSingle(cliArgs: BundlerCliArgs, bundlerRoot: str
 	await doSingleRun(tsc, bundler);
 }
 
+/** основная функция запуска бандлера. вызывается при запуске в качестве тула */
 export async function tsBundlerMain(cliArgs: BundlerCliArgs = parseCliArgs()){
 	if(cliArgs.devmode){
-		await runBundlerDevmode(cliArgs, __dirname, {useStdio: true});
+		await runBundlerDevmode(cliArgs);
 	} else {
 		await runBundlerSingle(cliArgs);
 	}
@@ -124,7 +129,7 @@ interface StdinBunldeAction {
 	action: "bundle"
 }
 
-async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts: BundlerDevmodeOptions = {}){
+async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts: BundlerMergedConfig){
 	logDebug("Starting in devmode.");
 	let isAssemblingNow = false;
 
@@ -137,7 +142,7 @@ async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts
 
 		try {
 			if(!tsc.isRunning){
-				// эта проверка здесь из-за моей паранойи. я не встречался с проблемами из-за её отсутствия
+				// этот слип здесь из-за моей паранойи. я не встречался с проблемами из-за его отсутствия
 				// смысл в том, что к моменту вызова assemble() tsc может еще не увидеть, что файлы изменились
 				// и поэтому нужно подождать, вдруг запустится
 				await new Promise(ok => setTimeout(ok, 500));
