@@ -2,7 +2,7 @@ import * as path from "path";
 import {event} from "event";
 import * as childProcess from "child_process";
 import {EventEmitter} from "events";
-import {logError} from "log";
+import {logError, logDebug, logInfo} from "log";
 import {findBundlerOrProjectFile} from "bundler_or_project_file";
 
 export interface TscOptions {
@@ -113,7 +113,7 @@ export class TSC {
 			this.startRunning();
 		} else if(lc.match(/^[\d:\-\s]+found\s+0\s+errors/)){
 			this.stopRunning(true);
-		} else if(lc.match(/^[\d:\-\s]+found\s+\d+\s+errors/)){
+		} else if(lc.match(/^[\d:\-\s]+found\s+\d+\s+error/)){
 			this.stopRunning(false);
 		} else if(line.trim()) {
 			// наверняка сообщение об ошибке. прокидываем в наш stderr
@@ -127,10 +127,12 @@ export class TSC {
 			throw new Error("Something strange happened (duplicate compilation start?)");
 		}
 		this._runningCount++;
+		//logInfo("Run started: " + this._runningCount);
 	}
 
 	private stopRunning(success: boolean){
 		this._runningCount--;
+		//logInfo("Run completed: " + this._runningCount);
 		if(this.isRunning)
 			return; // двойной запуск компиляции. неприятно, но ладно, не реагируем
 		this._codeBroken = !success;
@@ -144,6 +146,7 @@ export class TSC {
 
 	private createProcess(opts: TscOptions) {
 		let args = this.generateTscArguments(opts);
+		logDebug("CLI args: " + JSON.stringify([this.tscPath, ...args]));
 		let proc = childProcess.spawn(this.tscPath, args, {
 			cwd: path.dirname(opts.projectPath),
 			windowsHide: true
