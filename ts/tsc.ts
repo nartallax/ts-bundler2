@@ -2,7 +2,7 @@ import * as path from "path";
 import {event} from "event";
 import * as childProcess from "child_process";
 import {EventEmitter} from "events";
-import {logError, logDebug, logInfo} from "log";
+import {logError, logDebug} from "log";
 import {findBundlerOrProjectFile} from "bundler_or_project_file";
 
 export interface TscOptions {
