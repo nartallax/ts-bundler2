@@ -109,11 +109,11 @@ export class TSC {
 
 		if(lc.startsWith("tsfile: ")){
 			this.lastCompilationFileChanges.push(line.substr("tsfile: ".length).trim());
-		} else if(lc.match(/^[\d:\-\s]+starting\s+compilation\s+in\s+watch\s+mode/) || lc.match(/^[\d:\-\s]+file\s+change\s+detected/)){
+		} else if(lc.match(/^[\d:\-\sapm]+starting\s+compilation\s+in\s+watch\s+mode/) || lc.match(/^[\d:\-\sapm]+file\s+change\s+detected/)){
 			this.startRunning();
-		} else if(lc.match(/^[\d:\-\s]+found\s+0\s+errors/)){
+		} else if(lc.match(/^[\d:\-\sapm]+found\s+0\s+errors/)){
 			this.stopRunning(true);
-		} else if(lc.match(/^[\d:\-\s]+found\s+\d+\s+error/)){
+		} else if(lc.match(/^[\d:\-\sapm]+found\s+\d+\s+error/)){
 			this.stopRunning(false);
 		} else if(line.trim()) {
 			// наверняка сообщение об ошибке. прокидываем в наш stderr

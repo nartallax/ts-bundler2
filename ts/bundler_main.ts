@@ -129,7 +129,7 @@ interface StdinBunldeAction {
 	action: "bundle"
 }
 
-async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts: BundlerMergedConfig){
+async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts: BundlerMergedConfig): Promise<() => Promise<boolean>>{
 	logDebug("Starting in devmode.");
 	let isAssemblingNow = false;
 
@@ -217,10 +217,11 @@ async function doDevmode(tsc: TSC, modman: ModuleManager, bundler: Bundler, opts
 		}
 	});
 
-	tsc.run();
-	await new Promise(ok => {
+	let startPromise = new Promise(ok => {
 		startWaiter = ok
 	});
+	tsc.run();
+	await startPromise;
 
 	return assemble;
 }
