@@ -213,7 +213,7 @@ export class ModuleManager {
 			// то, скорее всего, в outDir будет не совсем внятная каша
 			// поэтому лучше проверять, что этого перехода нет. например, вот таким образом
 			let fullPath = path.resolve(tsconfigDir, pathDir);
-			if(!pathIncludes(tsconfigDir, fullPath))
+			if(!pathIncludes(tsconfigDir, fullPath) && tsconfigDir !== fullPath)
 				throw new Error("Could not use tsconfig.json (at " + tsConfigPath + "): expected all wildcard paths to point to some dir inside project root (i.e. dir with tsconfig.json), but this one does not: " + p);
 			return path.resolve(outDir, pathDir);
 		});

@@ -383,7 +383,7 @@ define("module_manager", ["require", "exports", "fs", "path", "async_fs", "eval_
                 }
                 let pathDir = path.dirname(p);
                 let fullPath = path.resolve(tsconfigDir, pathDir);
-                if (!path_includes_1.pathIncludes(tsconfigDir, fullPath))
+                if (!path_includes_1.pathIncludes(tsconfigDir, fullPath) && tsconfigDir !== fullPath)
                     throw new Error("Could not use tsconfig.json (at " + tsConfigPath + "): expected all wildcard paths to point to some dir inside project root (i.e. dir with tsconfig.json), but this one does not: " + p);
                 return path.resolve(outDir, pathDir);
             });
