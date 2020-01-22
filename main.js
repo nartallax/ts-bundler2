@@ -510,7 +510,7 @@ define("bundler", ["require", "exports", "dependency_traverser", "async_fs", "pa
         }
         async assembleBundle() {
             let bundleCode = await this.getBundleCodeStr();
-            await async_fs_2.fsWrite(this.opts.outFile, new Buffer(bundleCode, "utf8"));
+            await async_fs_2.fsWrite(this.opts.outFile, Buffer.from(bundleCode, "utf8"));
         }
         async getBundleCodeStr() {
             let [moduleMapStr, helpers] = await Promise.all([
@@ -933,7 +933,7 @@ define("bundler_main", ["require", "exports", "cli", "fs", "path", "tsc", "bundl
         })();
         let config = { ...cliArgs, ...bundlerConfig };
         log_8.setLogVerbosityLevel(config.verbose ? 1 : 0);
-        if (config.devmode) {
+        if (config.devmode && !("fancy" in config)) {
             config.fancy = true;
         }
         let configDirPath = path.dirname(config.configPath);

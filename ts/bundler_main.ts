@@ -58,7 +58,7 @@ function getMergedConfig(cliArgs: BundlerCliArgs): BundlerMergedConfig {
 
 	setLogVerbosityLevel(config.verbose? 1: 0);
 
-	if(config.devmode){
+	if(config.devmode && !("fancy" in config)){
 		config.fancy = true;
 	}
 

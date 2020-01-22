@@ -33,7 +33,7 @@ export class Bundler {
 	 * в результате её вызова в outFile пишется js-файл с бандлом */
 	async assembleBundle(){
 		let bundleCode = await this.getBundleCodeStr();
-		await fsWrite(this.opts.outFile, new Buffer(bundleCode, "utf8"));
+		await fsWrite(this.opts.outFile, Buffer.from(bundleCode, "utf8"));
 	}
 
 	private async getBundleCodeStr(){
